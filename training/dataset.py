@@ -13,6 +13,7 @@ import PIL.Image
 import json
 import torch
 import dnnlib
+import csv
 
 try:
     import pyspng
@@ -42,11 +43,11 @@ class Dataset(torch.utils.data.Dataset):
             np.random.RandomState(random_seed).shuffle(self._raw_idx)
             self._raw_idx = np.sort(self._raw_idx[:max_size])
 
-        # Apply xflip.
-        self._xflip = np.zeros(self._raw_idx.size, dtype=np.uint8)
-        if xflip:
-            self._raw_idx = np.tile(self._raw_idx, 2)
-            self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
+        # # Apply xflip.
+        # self._xflip = np.zeros(self._raw_idx.size, dtype=np.uint8)
+        # if xflip:
+        #     self._raw_idx = np.tile(self._raw_idx, 2)
+        #     self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
 
     def _get_raw_labels(self):
         if self._raw_labels is None:
@@ -159,6 +160,15 @@ class ImageFolderDataset(Dataset):
     ):
         self._path = path
         self._zipfile = None
+        self._noisy_image = np.array(PIL.Image.open('pics/NOISY.PNG'))
+        self._noisy_image = self._noisy_image.transpose(2, 0, 1) # HWC => CHW
+        self._H, self._W, self._C = self._noisy_image.shape
+        self._param = []
+
+        # 開啟 CSV 檔案
+        with open('pics/param.csv', newline='') as csvfile:
+            # 讀取 CSV 檔案內容
+            self._param = csv.reader(csvfile)
 
         if os.path.isdir(self._path):
             self._type = 'dir'
@@ -206,9 +216,26 @@ class ImageFolderDataset(Dataset):
 
     def __getstate__(self):
         return dict(super().__getstate__(), _zipfile=None)
+    
+    def __getitem__(self, idx):
+        image = self._load_raw_image(idx)
+        assert isinstance(image, np.ndarray)
+        assert list(image.shape) == self.image_shape
+        assert image.dtype == np.uint8
+        # if self._xflip[idx]:
+        #     assert image.ndim == 3 # CHW
+        #     image = image[:, :, ::-1]
+             
+        # get random ROI
+        down = np.random.randint(self.resolution, self._H)
+        right = np.random.randint(self.resolution, self._W)
+        image = image[down-self.resolution:down, right-self.resolution:right, :]
+        noisy_image = self._noisy_image[down-self.resolution:down, right-self.resolution:right, :]
 
-    def _load_raw_image(self, raw_idx):
-        fname = self._image_fnames[raw_idx]
+        return noisy_image.copy(), image.copy(), self._param[idx]
+
+    def _load_raw_image(self, idx):
+        fname = self._image_fnames[idx]
         with self._open_file(fname) as f:
             if pyspng is not None and self._file_ext(fname) == '.png':
                 image = pyspng.load(f.read())
