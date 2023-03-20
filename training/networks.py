@@ -387,8 +387,9 @@ class SynthesisBlock(torch.nn.Module):
 
         # Input.
         if self.in_channels == 0:
-            x = self.const.to(dtype=dtype, memory_format=memory_format)
-            x = x.unsqueeze(0).repeat([ws.shape[0], 1, 1, 1])
+            x = x.to(dtype=dtype, memory_format=memory_format)
+            # x = x.unsqueeze(0).repeat([ws.shape[0], 1, 1, 1])
+            # torch.Size([batch, 512, 4, 4])
         else:
             misc.assert_shape(x, [None, self.in_channels, self.resolution // 2, self.resolution // 2])
             x = x.to(dtype=dtype, memory_format=memory_format)
@@ -454,7 +455,7 @@ class SynthesisNetwork(torch.nn.Module):
                 self.num_ws += block.num_torgb
             setattr(self, f'b{res}', block)
 
-    def forward(self, ws, **block_kwargs):
+    def forward(self, x, ws, **block_kwargs):
         block_ws = []
         with torch.autograd.profiler.record_function('split_ws'):
             misc.assert_shape(ws, [None, self.num_ws, self.w_dim])
@@ -465,7 +466,7 @@ class SynthesisNetwork(torch.nn.Module):
                 block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
                 w_idx += block.num_conv
 
-        x = img = None
+        img = None
         for res, cur_ws in zip(self.block_resolutions, block_ws):
             block = getattr(self, f'b{res}')
             x, img = block(x, img, cur_ws, **block_kwargs)
@@ -656,8 +657,8 @@ class DiscriminatorEpilogue(torch.nn.Module):
         if self.mbstd is not None:
             x = self.mbstd(x)
         x = self.conv(x)
-        x = self.fc(x.flatten(1))
-        x = self.out(x)
+        # x = self.fc(x.flatten(1))
+        # x = self.out(x)
 
         # Conditioning.
         if self.cmap_dim > 0:

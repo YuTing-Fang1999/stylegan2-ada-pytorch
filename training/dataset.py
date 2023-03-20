@@ -43,11 +43,11 @@ class Dataset(torch.utils.data.Dataset):
             np.random.RandomState(random_seed).shuffle(self._raw_idx)
             self._raw_idx = np.sort(self._raw_idx[:max_size])
 
-        # # Apply xflip.
-        # self._xflip = np.zeros(self._raw_idx.size, dtype=np.uint8)
-        # if xflip:
-        #     self._raw_idx = np.tile(self._raw_idx, 2)
-        #     self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
+        # Apply xflip.
+        self._xflip = np.zeros(self._raw_idx.size, dtype=np.uint8)
+        if xflip:
+            self._raw_idx = np.tile(self._raw_idx, 2)
+            self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
 
     def _get_raw_labels(self):
         if self._raw_labels is None:
@@ -124,8 +124,9 @@ class Dataset(torch.utils.data.Dataset):
     @property
     def resolution(self):
         assert len(self.image_shape) == 3 # CHW
-        assert self.image_shape[1] == self.image_shape[2]
-        return self.image_shape[1]
+        # assert self.image_shape[1] == self.image_shape[2]
+        # return self.image_shape[1]
+        return 256
 
     @property
     def label_shape(self):
@@ -160,19 +161,19 @@ class ImageFolderDataset(Dataset):
     ):
         self._path = path
         self._zipfile = None
-        self._noisy_image = np.array(PIL.Image.open('pics/NOISY.PNG'))
+        self._noisy_image = np.array(PIL.Image.open(self._path+'/NOISY.png'))
         self._noisy_image = self._noisy_image.transpose(2, 0, 1) # HWC => CHW
-        self._H, self._W, self._C = self._noisy_image.shape
+        self._C, self._H, self._W = self._noisy_image.shape
         self._param = []
-
+        
         # 開啟 CSV 檔案
-        with open('pics/param.csv', newline='') as csvfile:
+        with open(self._path+'/param.csv', newline='') as csvfile:
             # 讀取 CSV 檔案內容
-            self._param = csv.reader(csvfile)
+            self._param = np.array(list(csv.reader(csvfile))).astype(np.float)
 
         if os.path.isdir(self._path):
             self._type = 'dir'
-            self._all_fnames = {os.path.relpath(os.path.join(root, fname), start=self._path) for root, _dirs, files in os.walk(self._path) for fname in files}
+            self._all_fnames = {os.path.relpath(os.path.join(root, fname), start=self._path) for root, _dirs, files in os.walk(self._path+'/pics') for fname in files}
         elif self._file_ext(self._path) == '.zip':
             self._type = 'zip'
             self._all_fnames = set(self._get_zipfile().namelist())
@@ -186,8 +187,8 @@ class ImageFolderDataset(Dataset):
 
         name = os.path.splitext(os.path.basename(self._path))[0]
         raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
-        if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
-            raise IOError('Image files do not match the specified resolution')
+        # if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+        #     raise IOError('Image files do not match the specified resolution')
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
 
     @staticmethod
@@ -216,7 +217,7 @@ class ImageFolderDataset(Dataset):
 
     def __getstate__(self):
         return dict(super().__getstate__(), _zipfile=None)
-    
+
     def __getitem__(self, idx):
         image = self._load_raw_image(idx)
         assert isinstance(image, np.ndarray)
@@ -229,9 +230,11 @@ class ImageFolderDataset(Dataset):
         # get random ROI
         down = np.random.randint(self.resolution, self._H)
         right = np.random.randint(self.resolution, self._W)
-        image = image[down-self.resolution:down, right-self.resolution:right, :]
-        noisy_image = self._noisy_image[down-self.resolution:down, right-self.resolution:right, :]
+        # CHW
+        image = image[ : , down-self.resolution:down, right-self.resolution:right]
+        noisy_image = self._noisy_image[ : , down-self.resolution:down, right-self.resolution:right]
 
+        # print(noisy_image.shape, image.shape, self._param[idx].shape)
         return noisy_image.copy(), image.copy(), self._param[idx]
 
     def _load_raw_image(self, idx):

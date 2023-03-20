@@ -28,40 +28,42 @@ from metrics import metric_main
 
 def setup_snapshot_image_grid(training_set, random_seed=0):
     rnd = np.random.RandomState(random_seed)
-    gw = np.clip(7680 // training_set.image_shape[2], 7, 32)
-    gh = np.clip(4320 // training_set.image_shape[1], 4, 32)
+    # gw = np.clip(7680 // training_set.image_shape[2], 7, 32)
+    # gh = np.clip(4320 // training_set.image_shape[1], 4, 32)
 
     # No labels => show random subset of training samples.
     if not training_set.has_labels:
         all_indices = list(range(len(training_set)))
         rnd.shuffle(all_indices)
-        grid_indices = [all_indices[i % len(all_indices)] for i in range(gw * gh)]
+        # grid_indices = [all_indices[i % len(all_indices)] for i in range(gw * gh)]
+        grid_indices = [all_indices[i % len(all_indices)] for i in range(10)]
 
-    else:
-        # Group training samples by label.
-        label_groups = dict() # label => [idx, ...]
-        for idx in range(len(training_set)):
-            label = tuple(training_set.get_details(idx).raw_label.flat[::-1])
-            if label not in label_groups:
-                label_groups[label] = []
-            label_groups[label].append(idx)
+    # else:
+    #     # Group training samples by label.
+    #     label_groups = dict() # label => [idx, ...]
+    #     for idx in range(len(training_set)):
+    #         label = tuple(training_set.get_details(idx).raw_label.flat[::-1])
+    #         if label not in label_groups:
+    #             label_groups[label] = []
+    #         label_groups[label].append(idx)
 
-        # Reorder.
-        label_order = sorted(label_groups.keys())
-        for label in label_order:
-            rnd.shuffle(label_groups[label])
+    #     # Reorder.
+    #     label_order = sorted(label_groups.keys())
+    #     for label in label_order:
+    #         rnd.shuffle(label_groups[label])
 
-        # Organize into grid.
-        grid_indices = []
-        for y in range(gh):
-            label = label_order[y % len(label_order)]
-            indices = label_groups[label]
-            grid_indices += [indices[x % len(indices)] for x in range(gw)]
-            label_groups[label] = [indices[(i + gw) % len(indices)] for i in range(len(indices))]
+    #     # Organize into grid.
+    #     grid_indices = []
+    #     for y in range(gh):
+    #         label = label_order[y % len(label_order)]
+    #         indices = label_groups[label]
+    #         grid_indices += [indices[x % len(indices)] for x in range(gw)]
+    #         label_groups[label] = [indices[(i + gw) % len(indices)] for i in range(len(indices))]
 
     # Load data.
     images, labels = zip(*[training_set[i] for i in grid_indices])
-    return (gw, gh), np.stack(images), np.stack(labels)
+    return images
+    # return (gw, gh), np.stack(images), np.stack(labels)
 
 #----------------------------------------------------------------------------
 
@@ -70,18 +72,20 @@ def save_image_grid(img, fname, drange, grid_size):
     img = np.asarray(img, dtype=np.float32)
     img = (img - lo) * (255 / (hi - lo))
     img = np.rint(img).clip(0, 255).astype(np.uint8)
+    
+    print(img.shape)
 
-    gw, gh = grid_size
-    _N, C, H, W = img.shape
-    img = img.reshape(gh, gw, C, H, W)
-    img = img.transpose(0, 3, 1, 4, 2)
-    img = img.reshape(gh * H, gw * W, C)
+    # gw, gh = grid_size
+    # _N, C, H, W = img.shape
+    # img = img.reshape(gh, gw, C, H, W)
+    # img = img.transpose(0, 3, 1, 4, 2)
+    # img = img.reshape(gh * H, gw * W, C)
 
-    assert C in [1, 3]
-    if C == 1:
-        PIL.Image.fromarray(img[:, :, 0], 'L').save(fname)
-    if C == 3:
-        PIL.Image.fromarray(img, 'RGB').save(fname)
+    # assert C in [1, 3]
+    # if C == 1:
+    #     PIL.Image.fromarray(img[:, :, 0], 'L').save(fname)
+    # if C == 3:
+    #     PIL.Image.fromarray(img, 'RGB').save(fname)
 
 #----------------------------------------------------------------------------
 
@@ -141,10 +145,7 @@ def training_loop(
         print('Num images: ', len(training_set))
         print('Image shape:', training_set.image_shape)
         print('Label shape:', training_set.label_shape)
-        print('G_kwargs.zdim:', G_kwargs.zdim, 'training_set.z_dim', len(training_set._param[0]))
-        print('G_kwargs.wdim:', G_kwargs.wdim)
         print()
-        assert G_kwargs.zdim == len(training_set._param[0])
 
     # Construct networks.
     if rank == 0:
@@ -166,8 +167,8 @@ def training_loop(
     if rank == 0:
         z = torch.empty([batch_gpu, G.z_dim], device=device)
         c = torch.empty([batch_gpu, G.c_dim], device=device)
-        img = misc.print_module_summary(G, [z, c])
-        misc.print_module_summary(D, [img, c])
+        # img = misc.print_module_summary(G, [z, c])
+        # misc.print_module_summary(D, [img, c])
 
     # Setup augmentation.
     if rank == 0:
@@ -263,6 +264,7 @@ def training_loop(
             phase_noisy_img,  phase_denoisy_img, phase_z= next(training_set_iterator)
             phase_noisy_img = (phase_noisy_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
             phase_denoisy_img = (phase_denoisy_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+            phase_z = phase_z.to(device).to(torch.float32).split(batch_gpu)
             # phase_real_c = phase_real_c.to(device).split(batch_gpu)
             # all_gen_z = torch.randn([len(phases) * batch_size, G.z_dim], device=device)
             # all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in all_gen_z.split(batch_size)]
@@ -270,19 +272,18 @@ def training_loop(
             # all_gen_c = torch.from_numpy(np.stack(all_gen_c)).pin_memory().to(device)
             # all_gen_c = [phase_gen_c.split(batch_gpu) for phase_gen_c in all_gen_c.split(batch_size)]
 
-        # # Execute training phases.
-        # for phase, phase_gen_z, phase_gen_c in zip(phases, all_gen_z, all_gen_c):
-        #     if batch_idx % phase.interval != 0:
-        #         continue
+        # Execute training phases.
+        for phase in phases:
+            if batch_idx % phase.interval != 0:
+                continue
 
-        #     # Initialize gradient accumulation.
-        #     if phase.start_event is not None:
-        #         phase.start_event.record(torch.cuda.current_stream(device))
-        #     phase.opt.zero_grad(set_to_none=True)
-        #     phase.module.requires_grad_(True)
-
+            # Initialize gradient accumulation.
+            if phase.start_event is not None:
+                phase.start_event.record(torch.cuda.current_stream(device))
+            phase.opt.zero_grad(set_to_none=True)
+            phase.module.requires_grad_(True)
             # Accumulate gradients over multiple rounds.
-            for round_idx, (noisy_img, denoisy_img, param_z, ) in enumerate(zip(phase_noisy_img, phase_denoisy_img, phase_z)):
+            for round_idx, (noisy_img, denoisy_img, param_z) in enumerate(zip(phase_noisy_img, phase_denoisy_img, phase_z)):
                 sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)
                 gain = phase.interval
                 loss.accumulate_gradients(phase=phase.name, noisy_img=noisy_img, denoisy_img=denoisy_img, param_z=param_z, sync=sync, gain=gain)
@@ -298,25 +299,25 @@ def training_loop(
                 phase.end_event.record(torch.cuda.current_stream(device))
 
         # Update G_ema.
-        with torch.autograd.profiler.record_function('Gema'):
-            ema_nimg = ema_kimg * 1000
-            if ema_rampup is not None:
-                ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
-            ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
-            for p_ema, p in zip(G_ema.parameters(), G.parameters()):
-                p_ema.copy_(p.lerp(p_ema, ema_beta))
-            for b_ema, b in zip(G_ema.buffers(), G.buffers()):
-                b_ema.copy_(b)
+        # with torch.autograd.profiler.record_function('Gema'):
+        #     ema_nimg = ema_kimg * 1000
+        #     if ema_rampup is not None:
+        #         ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
+        #     ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
+        #     for p_ema, p in zip(G_ema.parameters(), G.parameters()):
+        #         p_ema.copy_(p.lerp(p_ema, ema_beta))
+        #     for b_ema, b in zip(G_ema.buffers(), G.buffers()):
+        #         b_ema.copy_(b)
 
         # Update state.
         cur_nimg += batch_size
         batch_idx += 1
 
-        # Execute ADA heuristic.
-        if (ada_stats is not None) and (batch_idx % ada_interval == 0):
-            ada_stats.update()
-            adjust = np.sign(ada_stats['Loss/signs/real'] - ada_target) * (batch_size * ada_interval) / (ada_kimg * 1000)
-            augment_pipe.p.copy_((augment_pipe.p + adjust).max(misc.constant(0, device=device)))
+        # # Execute ADA heuristic.
+        # if (ada_stats is not None) and (batch_idx % ada_interval == 0):
+        #     ada_stats.update()
+        #     adjust = np.sign(ada_stats['Loss/signs/real'] - ada_target) * (batch_size * ada_interval) / (ada_kimg * 1000)
+        #     augment_pipe.p.copy_((augment_pipe.p + adjust).max(misc.constant(0, device=device)))
 
         # Perform maintenance tasks once per tick.
         done = (cur_nimg >= total_kimg * 1000)
@@ -348,10 +349,10 @@ def training_loop(
                 print()
                 print('Aborting...')
 
-        # Save image snapshot.
-        if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
-            images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
+        # # Save image snapshot.
+        # if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
+        #     images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
+        #     save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -371,16 +372,16 @@ def training_loop(
                     pickle.dump(snapshot_data, f)
 
         # Evaluate metrics.
-        if (snapshot_data is not None) and (len(metrics) > 0):
-            if rank == 0:
-                print('Evaluating metrics...')
-            for metric in metrics:
-                result_dict = metric_main.calc_metric(metric=metric, G=snapshot_data['G_ema'],
-                    dataset_kwargs=training_set_kwargs, num_gpus=num_gpus, rank=rank, device=device)
-                if rank == 0:
-                    metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
-                stats_metrics.update(result_dict.results)
-        del snapshot_data # conserve memory
+        # if (snapshot_data is not None) and (len(metrics) > 0):
+        #     if rank == 0:
+        #         print('Evaluating metrics...')
+        #     for metric in metrics:
+        #         result_dict = metric_main.calc_metric(metric=metric, G=snapshot_data['G_ema'],
+        #             dataset_kwargs=training_set_kwargs, num_gpus=num_gpus, rank=rank, device=device)
+        #         if rank == 0:
+        #             metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
+        #         stats_metrics.update(result_dict.results)
+        # del snapshot_data # conserve memory
 
         # Collect statistics.
         for phase in phases:
